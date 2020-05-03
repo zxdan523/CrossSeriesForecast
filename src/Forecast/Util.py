@@ -1,5 +1,7 @@
+from datetime import datetime
 import numpy as np
 import csv
+from os import path, makedirs
 
 class Dataset:
     def __init__(self, X = [], y = []):
@@ -8,6 +10,18 @@ class Dataset:
     
 # class M5:
 #    def import_data(data_path):
+
+def get_time():
+    now = datetime.now()
+    return now.strftime("%Y-%m-%d-%H-%M-%S")
+
+def get_val_data(train_data, test_data, n_steps):
+    return [\
+            train_item[-n_steps:]\
+            + test_item\
+            for train_item, test_item\
+            in zip(train_data, test_data)
+           ]
         
 def get_data_from_csv(filename):
     data = []
@@ -30,6 +44,14 @@ def get_data_from_txt(filename, head_len):
             data.append(item)
     return data   
 
+def formalize_prediction_as_data(prediction, data):
+    preds = [[] for _ in range(len(data))]
+    start = 0
+    for i, item in enumerate(data):
+        preds[i] = prediction[start:start + len(item)]
+        start += len(item)
+    return preds
+
 def fomalize_predictions_as_data(predictions, groups, data):
     results = [[0] * len(item) for item in data]
     for i, group in enumerate(groups):
@@ -40,29 +62,137 @@ def fomalize_predictions_as_data(predictions, groups, data):
             start += num_val
     return results
 
-def evaluate_NMSE(predictions, ys):
-    NMSEs = []
-    for pred, y in zip(predictions, ys):
-        NMSEs.append(
-            np.mean(
-                np.power(np.array(pred) - np.array(y), 2) / np.mean(pred) / np.mean(y)
+def eva_NMSE(pred, y):
+    pred = np.array(pred, dtype = np.float64)
+    y = np.array(y, dtype = np.float64)
+    return np.mean(\
+                np.power(pred - y, 2) /\
+                   (np.mean(pred) + 1e-6) /\
+                   (np.mean(y) + 1e-6)\
             )
-        )
-    pred = np.concatenate(predictions)
-    y = np.concatenate(ys)
-    NMSEs.append(
-        np.mean(
-            np.power(np.array(pred) - np.array(y), 2) / np.mean(pred) / np.mean(y)
-        )
-    )
-    return NMSEs
 
-def evaluate_SMAPE(predictions, ys):
-    SMAPEs = []
-    for pred, y in zip(predictions, ys):
-        SMAPEs.append(
-            np.mean(
-                np.abs(np.array(pred) - np.array(y)) / (np.abs(pred) + np.abs(y)) * 2
+def eva_NMAE(pred, y):
+    pred = np.array(pred, dtype = np.float64)
+    y = np.array(y, dtype = np.float64)
+    return np.mean(np.abs(pred - y)) / (np.mean(y) + 1e-6)
+
+
+def eva_R(pred, y):
+    pred = np.array(pred, dtype = np.float64)
+    y = np.array(y, dtype = np.float64)
+    return 1 - np.sum(np.power(pred - y,2)) /\
+        (np.sum(np.power(y - np.mean(y),2)) + 1e-6)
+
+def eva_SMAPE(pred, y):
+    pred = np.array(pred, dtype = np.float64)
+    y = np.array(y, dtype = np.float64)
+    return np.mean(\
+                np.abs(pred - y) /\
+                   (np.abs(pred) + np.abs(y) + 1e-6) * 2\
             )
+def eva(preds, ys, metric):
+    results = []
+    for pred, y in zip(preds, ys):
+        if sum(y) == 0:
+            continue
+        results.append(metric(pred, y))
+    return results
+
+def save_to_file(content, header, file_path):
+    file_mode = 'a'
+    if not path.exists(file_path):
+        file_mode = 'w'
+    with open(file_path, file_mode) as save_file:
+        if file_mode == 'w':
+            save_file.write(','.join(header) + '\n')
+        str_content = [str(content[k]) for k in header]
+        save_file.write(','.join(str_content) + '\n')
+        
+        
+        
+def grid_search_model_params(
+    model,
+    model_name,
+    model_params,
+    model_params_list,
+    train_datalist,
+    test_datalist,
+    file_path,
+    model_param_path
+):
+    if len(model_params_list) == 0:
+        new_model_params = model_params.copy()
+        print('Tunning Parameters:')
+        for k in new_model_params:
+            print(k + ':' + str(new_model_params[k]))
+        now = datetime.now()
+        new_model_params['name'] =\
+            model_name +\
+            '_' +\
+            now.strftime("%Y-%m-%d-%H-%M-%S")
+        
+        model.set_model_params(new_model_params)
+        
+        train_set = model.create_set(train_datalist)
+        val_datalist = {}
+        for feature in train_datalist:
+            val_datalist[feature] = get_val_data(\
+                                                 train_datalist[feature],\
+                                                 test_datalist[feature],\
+                                                 model.n_steps\
+                                                )
+        val_set = model.create_set(val_datalist)
+        test_data = test_datalist[model.output_features[0]]
+        
+        model.train(train_set, val_set)
+        
+        pred = model.get_preds(val_set.X)
+        y = np.concatenate(test_data)
+        
+        results = {k:v for k,v in new_model_params.items()}
+        results['R'] = eva_R(pred, y)
+        results['NMSE'] = eva_NMSE(pred, y)
+        results['NMAE'] = eva_NMAE(pred, y)
+        results['SMAPE'] = eva_SMAPE(pred, y)
+        
+        preds = formalize_prediction_as_data(pred, test_data)
+        Rs = eva(preds, test_data, eva_R)
+        NMSEs = eva(preds, test_data, eva_NMSE)
+        NMAEs = eva(preds, test_data, eva_NMAE)
+        SMAPEs = eva(preds, test_data, eva_SMAPE)
+        results['avg_R'] = np.mean(Rs)
+        results['std_R'] = np.std(Rs)
+        results['avg_NMSE'] = np.mean(NMSEs)
+        results['std_NMSE'] = np.std(NMSEs)
+        results['avg_NMAE'] = np.mean(NMAEs)
+        results['std_NMAE'] = np.std(NMAEs)
+        results['avg_SMAPE'] = np.mean(SMAPEs)
+        results['std_SMAPE'] = np.std(SMAPEs)
+        header = ['name']
+        for name in new_model_params:
+            if name not in header:
+                header.append(name)
+        for metric in {'R', 'NMSE', 'NMAE', 'SMAPE'}:
+            header.append(metric)
+            for stat in {'avg', 'std'}:
+                header.append(stat + '_' + metric)
+        
+        save_to_file(results, header, file_path)
+        model.save_model_params(model_param_path)
+        return
+    
+    param_name, param_values = model_params_list[0]
+    for param_value in param_values:
+        new_model_params = model_params.copy()
+        new_model_params[param_name] = param_value
+        grid_search_model_params(
+            model,
+            model_name,
+            new_model_params,
+            model_params_list[1:],
+            train_datalist,
+            test_datalist,
+            file_path,
+            model_param_path
         )
-    return SMAPEs
+    

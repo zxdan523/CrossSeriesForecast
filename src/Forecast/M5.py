@@ -23,6 +23,10 @@ def select_dates(dates, years, months):
             selected_dates.append(date)
     return selected_dates
 
+def import_dates(date_file):
+    with open(date_file) as txt_file:
+        dates = txt_file.readline().split(',')
+    return dates
 def import_weekly_sales_and_prices(dataset_path):
     sales = get_data_from_csv(
         path.join(
@@ -36,6 +40,16 @@ def import_weekly_sales_and_prices(dataset_path):
             'sell_prices_weekly.csv'
                  )
     )
+    dates = import_dates(
+        path.join(
+            dataset_path,
+            'weekly_dates.txt',
+        )
+    )
+    for sale, price in zip(sales, prices):
+        for date in dates:
+            sale[date] = int(sale[date])
+            price[date] = float(price[date])
     return sales, prices
 
 def import_weekly_dates(dataset_path):
@@ -138,11 +152,11 @@ def generate_weekly_sales_and_prices(dataset_path):
                 
     # generate weekly prices
     print('generate weekly prices ...')
-    wk_prices = [[] for _ in range(len(sales))]
+    wk_prices = [[] for _ in range(len(day_prices))]
     avg_prices = []
-    for i in range(len(sales)):
+    for i in range(len(day_prices)):
         for j in range(1,1914):
-            avg_prices.append(int(sales[i]['d_' + str(j)]))
+            avg_prices.append(float(day_prices[i]['d_' + str(j)]))
             if calendar[j - 1]['weekday'] == 'Sunday':
                 wk_prices[i].append(np.mean(avg_prices))
                 avg_prices = []
@@ -158,6 +172,7 @@ def generate_weekly_sales_and_prices(dataset_path):
             dates.append(calendar[i]['date'])
     if calendar[-1]['weekday'] != 'Sunday':
         dates.append(calendar[-1]['date'])
+    
 
     print('save weekly sales ...')
     basic_info = {'id', 'item_id', 'dept_id', 'cat_id', 'store_id', 'state_id'}

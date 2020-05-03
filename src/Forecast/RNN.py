@@ -4,12 +4,18 @@ import tensorflow as tf
 import random
 from os import path, makedirs
 from .Util import Dataset
+import json
 
 def show_param_list():
     print('-' * 20 + ' Model Params ' + '-' * 20)
+    print('name [RNN]')
+    print('n_steps [5]')
+    print('n_preds [1]')
     print('n_neurons [100]')
     print('n_inputs [1]')
+    print('input_features [x]')
     print('n_outputs [1]')
+    print('output_features [x]')
     print('ckpt_path [../data/RNN_ckpt]')
     print('-' * 20 + ' Train Params ' + '-' * 20)
     print('init_lr [1e-3]')
@@ -20,6 +26,7 @@ def show_param_list():
     print('lr_schedule [learning rate schedule function]')
     print('ckpt [False]')
     print('training_sample_num [1000]')
+    print('device [gpu0]')
 
 class DeviceCellWrapper(tf.contrib.rnn.RNNCell):
     def __init__(self, device, cell):
@@ -35,23 +42,17 @@ class DeviceCellWrapper(tf.contrib.rnn.RNNCell):
         with tf.device(self._device):
             return self._cell(inputs, state, scope)
 
-class RNN:
-    def __init__(self, name, n_steps, n_preds, params):
-        self.name = name
-        self.n_steps = n_steps
-        self.n_preds = n_preds
+class Model:
+    def __init__(self):
+        self.name = 'RNN'
+        self.n_steps = 5
+        self.n_preds = 1
         self.n_inputs = 1
-        if 'n_input' in params:
-            self.n_inputs = params['n_inputs']
+        self.input_features = ['x']
         self.n_neurons = 100
-        if 'n_neurons' in params:
-            self.n_neurons = params['n_neurons']
         self.ckpt_path = '../data/RNN_ckpt'
-        if 'ckpt_path' in params:
-            self.ckpt_path = params['ckpt_path']
         self.n_outputs = 1
-        if 'n_outputs' in params:
-            self.n_outputs = params['n_outputs']
+        self.output_features = ['x']
         self.lr_decay = 0.1
         self.lr_decay_steps = 2
         self.init_lr = 1e-3
@@ -60,6 +61,63 @@ class RNN:
         self.lr_schedule = self.__lr_schedule
         self.ckpt = False
         self.training_sample_num = 1000
+        self.device = '/gpu:0'
+        
+    def set_model_params(self, params):
+        if 'name' in params:
+            self.name = params['name']
+        if 'n_steps' in params:
+            self.n_steps = params['n_steps']
+        if 'n_preds' in params:
+            self.n_preds = params['n_preds']
+        if 'n_inputs' in params:
+            self.n_inputs = params['n_inputs']
+        if 'input_features' in params:
+            self.input_features = params['input_features']
+        if 'n_neurons' in params:
+            self.n_neurons = params['n_neurons']
+        if 'ckpt_path' in params:
+            self.ckpt_path = params['ckpt_path']
+        if 'n_outputs' in params:
+            self.n_outputs = params['n_outputs']
+        if 'output_features' in params:
+            self.output_features = params['output_features']
+        self.__build_RNN()
+    
+    def save_model_params(self, save_path):
+        model_params = {}
+        model_params['name'] = self.name
+        model_params['n_steps'] = self.n_steps
+        model_params['n_preds'] = self.n_preds
+        model_params['n_inputs'] = self.n_inputs
+        model_params['input_features'] = self.input_features
+        model_params['n_neurons'] = self.n_neurons
+        model_params['ckpt_path'] = self.ckpt_path
+        model_params['n_outputs'] = self.n_outputs
+        model_params['output_features'] = self.output_features
+        if not path.exists(save_path):
+            makedirs(save_path)
+        with open(path.join(save_path, self.name + '.json'), 'w') as json_file:
+            json.dump(model_params, json_file)
+        print('The model is saved to ' + path.join(save_path, self.name + '.json'))
+            
+    def load_model_params(self, save_file):
+        print('Load model from file ' + save_file)
+        with open(save_file) as json_file:
+            model_params = json.load(json_file)
+        self.set_model_params(model_params)
+        
+    def show_model_params(self):
+        print('-' * 20 + ' Model Params ' + '-' * 20)
+        print('name:' + str(self.name))
+        print('n_steps:' + str(self.n_steps))
+        print('n_preds:' + str(self.n_preds))
+        print('n_neurons:' + str(self.n_neurons))
+        print('n_inputs:' + str(self.n_inputs))
+        print('input_features:' + str(self.input_features))
+        print('n_outputs:' + str(self.n_outputs))
+        print('ckpt_path:' + str(self.ckpt_path))
+        print('output_features:' + str(self.output_features))
         
     def set_training_params(self, params):
         if 'lr_decay' in params:
@@ -75,15 +133,19 @@ class RNN:
         if 'lr_schedule' in params:
             self.lr_schedule = params['lr_schedule']
         if 'ckpt' in params:
-            self.ckpt = True
+            self.ckpt = params['ckpt']
         if 'training_sample_num' in params:
             self.training_sample_num = params['training_sample_num']
-       
-    def create_set(self, main_data, datalist = []):
-        datalist = [main_data] + datalist
+        if 'device' in params:
+            self.device = params['device']
+            
+    def create_set(self, datalist):
         data_mats = []
-        for data in datalist:
-            data_mat = generate_data_matrix(data, self.n_steps, self.n_preds)
+        for feature in self.input_features:
+            data_mat = generate_data_matrix(
+                datalist[feature],
+                self.n_steps,
+                self.n_preds)
             data_mats.append(data_mat)
         data_mat = np.concatenate(data_mats, axis = 2)
         X = data_mat[:, :-self.n_preds,:]
@@ -100,8 +162,8 @@ class RNN:
         if not val_set is None:
             val_X = val_set.X
             val_y = val_set.y
-        self.n_inputs = train_X.shape[2]
-        self.__build_RNN()
+        if self.graph is None:
+            self.__build_RNN()
         with tf.Session(graph = self.graph) as sess:
             if not self.ckpt:
                 init = tf.global_variables_initializer()
@@ -111,6 +173,7 @@ class RNN:
                     sess,
                     path.join(self.ckpt_path, self.name + '.ckpt')
                 )
+
             print('Training Model: ' + self.name)
             print('-' * 56)
             last_training_error = None
@@ -124,7 +187,7 @@ class RNN:
                         feed_dict = {
                             self.X:X_batch,
                             self.y:y_batch,
-                            self.init_lr:lr
+                            self.lr:lr
                         }
                     )
                     train_R = sess.run(
@@ -181,6 +244,8 @@ class RNN:
     def get_preds_with_horizon(self, x, horizon):
         tf.logging.set_verbosity(tf.logging.ERROR)
         results = []
+        if self.graph is None:
+            self.__build_RNN()
         with tf.Session(graph = self.graph) as sess:
             self.saver.restore(sess, "../data/RNN_ckpt/" + self.name + '.ckpt')
             for h in range(horizon):
@@ -200,6 +265,8 @@ class RNN:
         return results
     
     def get_preds(self, X):
+        if self.graph is None:
+            self.__build_RNN()
         with tf.Session(graph = self.graph) as sess:
             self.saver.restore(sess, "../data/RNN_ckpt/" + self.name + '.ckpt')
             results = sess.run(
@@ -211,6 +278,8 @@ class RNN:
         return results
     
     def get_eval(self, var, feed_dict):
+        if self.graph is None:
+            self.__build_RNN()
         with tf.Session(graph = self.graph) as sess:
             self.saver.restore(sess, "../data/RNN_ckpt/" + self.name + '.ckpt')
             results = sess.run(
@@ -249,7 +318,7 @@ class RNN:
                 reuse = tf.AUTO_REUSE
             )
             self.gpu_cells = DeviceCellWrapper(
-                '/gpu:0',
+                self.device,
                 self.cells
             )
             self.rnn_outputs, self.states = tf.nn.dynamic_rnn(
@@ -276,10 +345,10 @@ class RNN:
             self.ys = self.y[:,-1,0]
             
             # --------------- Training Phase ---------------
-            self.init_lr = tf.placeholder(
+            self.lr = tf.placeholder(
                 tf.float32,
                 shape=[],
-                name="init_lr"
+                name="lr"
             )
             
             self.loss = tf.reduce_mean(
@@ -288,7 +357,7 @@ class RNN:
                 )
             )
             self.optimizer = tf.train.AdamOptimizer(
-                learning_rate = self.init_lr,
+                learning_rate = self.lr,
                 beta1 = 0.9,
                 beta2 = 0.999
             )
