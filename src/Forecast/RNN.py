@@ -173,7 +173,7 @@ class Model:
                     sess,
                     path.join(self.ckpt_path, self.name + '.ckpt')
                 )
-
+            
             print('Training Model: ' + self.name)
             print('-' * 56)
             last_training_error = None
