@@ -1,7 +1,7 @@
 from datetime import datetime
 import numpy as np
 import csv
-from os import path, makedirs
+from os import path, makedirs, listdir
 
 class Dataset:
     def __init__(self, X = [], y = []):
@@ -11,17 +11,139 @@ class Dataset:
 # class M5:
 #    def import_data(data_path):
 
+def collect_best_model_preds(
+    model,
+    groups,
+    train_datalist,
+    test_datalist,
+    model_path,
+    metric_name,
+    compare_func = lambda x,y: x > y
+):
+    perform_path = path.join(model_path, 'performance')
+    model_path = path.join(model_path, 'models')
+    n_groups = len(groups)
+    if metric_name in {'R', 'avg_R'}:
+        compare_func = lambda x,y: x > y
+    elif metric_name in {
+        'NMSE',
+        'avg_NMSE',
+        'std_NMSE',
+        'NMAE',
+        'avg_NMAE',
+        'std_NMAE',
+        'std_R'
+    }:
+        compare_func = lambda x,y: x < y
+    total_num = 0
+    for group in groups:
+        total_num += len(group)
+    preds = [[] for _ in range(total_num)]
+    for i in range(n_groups):
+        result_path = path.join(perform_path, 'results_' + str(i) + '.csv')
+        opt_model_name = None
+        opt_metric = None
+        with open(result_path) as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                model_name = row['name']
+                metric = row[metric_name]
+                if opt_metric is None or compare_func(
+                    metric,
+                    opt_metric):
+                    opt_metric = metric
+                    opt_model_name = model_name
+        model.load_model_params(
+            path.join(model_path, opt_model_name + '.json')
+        )
+        group_train_datalist = {
+            feature: [ 
+                train_datalist[feature][idx]
+                for idx in groups[i]
+            ] for feature in train_datalist
+        }
+        group_test_datalist = {
+            feature: [ 
+                test_datalist[feature][idx]
+                for idx in groups[i]
+            ] for feature in test_datalist
+        }
+        group_val_datalist = {
+            feature: model.get_val_data(
+                    group_train_datalist[feature],
+                    group_test_datalist[feature]
+                ) for feature in train_datalist
+        }
+        val_set = model.create_set(group_val_datalist)
+        group_preds = model.get_preds(val_set.X)
+        start = 0
+        for idx in groups[i]:
+            item_size = len(test_datalist[model.output_feature][idx])
+            preds[idx] = group_preds[
+                start: start + item_size
+            ]
+            start += item_size
+    return preds
+    
+def get_datalist_mean(datalist, include_zeros = False):
+    averages = []
+    if include_zeros:
+        averages = [np.mean(data) for data in datalist]
+        return averages
+    for data in datalist:
+        if np.mean(np.abs(data)) == 0:
+            averages.append(0)
+        else:
+            averages.append(
+                np.mean(
+                    [item for item in data if item != 0]
+                )
+            )
+    return averages
+def get_datalist_std(datalist, include_zeros = False):
+    stds = []
+    if include_zeros:
+        stds = [np.std(data) for data in datalist]
+        return stds
+    for data in datalist:
+        if np.mean(np.abs(data)) == 0:
+            stds.append(0)
+        else:
+            stds.append(
+                np.std(
+                    [item for item in data if item != 0]
+                )
+            )
+    return stds
+def get_datalist_coef_var(datalist, include_zeros = False):
+    coef_vars = []
+    if include_zeros:
+        for data in datalist:
+            data_mean = np.mean(data)
+            data_std = np.std(data)
+            if data_mean == 0:
+                coef_vars.append("nan")
+            else:
+                coef_vars.append(data_std / data_mean)
+        return coef_vars
+    for data in datalist:
+        if np.mean(np.abs(data)) == 0:
+            coef_vars.append("nan")
+        else:
+            data_mean = np.mean(
+                [item for item in data if item != 0]
+            )
+            data_std = np.std(
+                [item for item in data if item != 0]
+            )
+            if data_mean == 0:
+                coef_vars.append("nan")
+            else:
+                coef_vars.append(data_std / data_mean)
+    return coef_vars
 def get_time():
     now = datetime.now()
     return now.strftime("%Y-%m-%d-%H-%M-%S")
-
-def get_val_data(train_data, test_data, n_steps):
-    return [\
-            train_item[-n_steps:]\
-            + test_item\
-            for train_item, test_item\
-            in zip(train_data, test_data)
-           ]
         
 def get_data_from_csv(filename):
     data = []
@@ -105,7 +227,7 @@ def save_to_file(content, header, file_path):
     with open(file_path, file_mode) as save_file:
         if file_mode == 'w':
             save_file.write(','.join(header) + '\n')
-        str_content = [str(content[k]) for k in header]
+        str_content = [str(content[k]).replace(',', ' ') for k in header]
         save_file.write(','.join(str_content) + '\n')
         
         
@@ -129,20 +251,23 @@ def grid_search_model_params(
         new_model_params['name'] =\
             model_name +\
             '_' +\
-            now.strftime("%Y-%m-%d-%H-%M-%S")
-        
+            get_time()
+        if new_model_params['name'] != model.name.split('+')[0]:
+            new_model_params['name'] += '+0'
+        else:
+            new_model_params['name'] +=\
+                '+' + str(int(model.name.split('+')[1]) + 1)
         model.set_model_params(new_model_params)
         
         train_set = model.create_set(train_datalist)
         val_datalist = {}
         for feature in train_datalist:
-            val_datalist[feature] = get_val_data(\
+            val_datalist[feature] = model.get_val_data(\
                                                  train_datalist[feature],\
-                                                 test_datalist[feature],\
-                                                 model.n_steps\
+                                                 test_datalist[feature]\
                                                 )
         val_set = model.create_set(val_datalist)
-        test_data = test_datalist[model.output_features[0]]
+        test_data = test_datalist[model.output_feature]
         
         model.train(train_set, val_set)
         

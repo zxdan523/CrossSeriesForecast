@@ -15,7 +15,7 @@ def show_param_list():
     print('n_inputs [1]')
     print('input_features [x]')
     print('n_outputs [1]')
-    print('output_features [x]')
+    print('output_feature [x]')
     print('ckpt_path [../data/RNN_ckpt]')
     print('-' * 20 + ' Train Params ' + '-' * 20)
     print('init_lr [1e-3]')
@@ -26,7 +26,7 @@ def show_param_list():
     print('lr_schedule [learning rate schedule function]')
     print('ckpt [False]')
     print('training_sample_num [1000]')
-    print('device [gpu0]')
+    print('device [/gpu:0]')
 
 class DeviceCellWrapper(tf.contrib.rnn.RNNCell):
     def __init__(self, device, cell):
@@ -52,7 +52,7 @@ class Model:
         self.n_neurons = 100
         self.ckpt_path = '../data/RNN_ckpt'
         self.n_outputs = 1
-        self.output_features = ['x']
+        self.output_feature = 'x'
         self.lr_decay = 0.1
         self.lr_decay_steps = 2
         self.init_lr = 1e-3
@@ -81,8 +81,8 @@ class Model:
             self.ckpt_path = params['ckpt_path']
         if 'n_outputs' in params:
             self.n_outputs = params['n_outputs']
-        if 'output_features' in params:
-            self.output_features = params['output_features']
+        if 'output_feature' in params:
+            self.output_feature = params['output_feature']
         self.__build_RNN()
     
     def save_model_params(self, save_path):
@@ -95,7 +95,7 @@ class Model:
         model_params['n_neurons'] = self.n_neurons
         model_params['ckpt_path'] = self.ckpt_path
         model_params['n_outputs'] = self.n_outputs
-        model_params['output_features'] = self.output_features
+        model_params['output_feature'] = self.output_feature
         if not path.exists(save_path):
             makedirs(save_path)
         with open(path.join(save_path, self.name + '.json'), 'w') as json_file:
@@ -118,7 +118,7 @@ class Model:
         print('input_features:' + str(self.input_features))
         print('n_outputs:' + str(self.n_outputs))
         print('ckpt_path:' + str(self.ckpt_path))
-        print('output_features:' + str(self.output_features))
+        print('output_feature:' + str(self.output_feature))
         
     def set_training_params(self, params):
         if 'lr_decay' in params:
@@ -139,7 +139,13 @@ class Model:
             self.training_sample_num = params['training_sample_num']
         if 'device' in params:
             self.device = params['device']
-            
+    def get_val_data(self, train_data, test_data):
+        return [\
+                train_item[-self.n_steps:]\
+                + test_item\
+                for train_item, test_item\
+                in zip(train_data, test_data)
+               ]        
     def create_set(self, datalist):
         data_mats = []
         for feature in self.input_features:
@@ -248,7 +254,7 @@ class Model:
         if self.graph is None:
             self.__build_RNN()
         with tf.Session(graph = self.graph) as sess:
-            self.saver.restore(sess, "../data/RNN_ckpt/" + self.name + '.ckpt')
+            self.saver.restore(sess, path.join(self.ckpt_path, self.name + '.ckpt'))
             for h in range(horizon):
                 hist = np.zeros((1, self.n_steps, self.n_inputs))
                 if h < self.n_steps:
@@ -269,7 +275,7 @@ class Model:
         if self.graph is None:
             self.__build_RNN()
         with tf.Session(graph = self.graph) as sess:
-            self.saver.restore(sess, "../data/RNN_ckpt/" + self.name + '.ckpt')
+            self.saver.restore(sess, path.join(self.ckpt_path, self.name + '.ckpt'))
             results = sess.run(
                 self.predict,
                 feed_dict = {
@@ -282,7 +288,7 @@ class Model:
         if self.graph is None:
             self.__build_RNN()
         with tf.Session(graph = self.graph) as sess:
-            self.saver.restore(sess, "../data/RNN_ckpt/" + self.name + '.ckpt')
+            self.saver.restore(sess, path.join(self.ckpt_path, self.name + '.ckpt'))
             results = sess.run(
                 var,
                 feed_dict = feed_dict
@@ -296,7 +302,7 @@ class Model:
         return lr
     
     def __build_RNN(self):
-        self.graph=tf.Graph()
+        self.graph = tf.Graph()
         with self.graph.as_default():
             # --------------- Building Phase ---------------
             tf.variable_scope(
