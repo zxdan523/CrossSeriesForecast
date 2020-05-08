@@ -183,7 +183,6 @@ class Model:
             
             print('Training Model: ' + self.name)
             print('-' * 56)
-            last_training_error = None
             for epoch in range(self.n_epochs):
                 lr = self.lr_schedule(lr, self.n_epochs, epoch)
                 for i in range(0, train_X.shape[0], self.batch_size):
@@ -195,13 +194,6 @@ class Model:
                             self.X:X_batch,
                             self.y:y_batch,
                             self.lr:lr
-                        }
-                    )
-                    train_R = sess.run(
-                        self.Rsquare,
-                        feed_dict = {
-                            self.X:X_batch,
-                            self.y:y_batch,
                         }
                     )
                 
@@ -239,9 +231,6 @@ class Model:
                     )
                 else:
                     print('{0}\t|train R^2:{1:.5f}'.format(epoch, train_R))
-                if lr < 1e-5 and np.abs(train_R - last_training_error) < 1e-6:
-                    break
-                last_training_error = lr
             if not path.exists(self.ckpt_path):
                 makedirs(self.ckpt_path)
             save_path = self.saver.save(sess, path.join(self.ckpt_path, self.name + '.ckpt'))
