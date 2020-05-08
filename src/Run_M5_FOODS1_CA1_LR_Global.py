@@ -38,6 +38,8 @@ init_model_params = {
 }
 
 model_params_list = [
+    ('intercept', [False, True]),
+    ('normalize', [False, True]),
     (
         'n_steps',
         [
