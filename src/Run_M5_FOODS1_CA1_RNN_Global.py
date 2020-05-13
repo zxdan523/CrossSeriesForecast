@@ -11,19 +11,19 @@ name = 'M5_FOODS1_CA1'
 
 dept_id = 'FOODS_1'
 store_id = 'CA_1'
-training_years = range(2012, 2015)
-test_years = [2015]
+training_years = range(2013, 2016)
+test_years = [2016]
 
-base_path = '../data/M5/' + dept_id + '_' + store_id + '/RNN/global'
+base_path = '../data/M5/' + dept_id + '_' + store_id + '/RNN/global/2016'
 perform_path = path.join(base_path, 'performance')
 model_path = path.join(base_path, 'models')
 ckpt_path = path.join(base_path, 'ckpts')
 
 category = {'dept_id': 'FOODS_1', 'store_id':'CA_1'}
-train_dates = M5.select_dates(dates, range(2012, 2015), range(1, 13))
+train_dates = M5.select_dates(dates, training_years, range(1, 13))
 train_sales = M5.select_data(sales, category, train_dates)
 train_prices = M5.select_data(prices, category, train_dates)
-test_dates = M5.select_dates(dates, [2015], range(1, 13))
+test_dates = M5.select_dates(dates, test_years, range(1, 13))
 test_sales = M5.select_data(sales, category, test_dates)
 test_prices = M5.select_data(prices, category, test_dates)
 
@@ -31,9 +31,7 @@ print('Setting Parameters ...')
 groups = [[i for i in range(len(train_sales))]]
 
 init_model_params = {
-    'input_features': ['sale', 'price'],
     'output_feature': 'sale',
-    'n_inputs': 2,
     'ckpt_path': ckpt_path
 }
 
