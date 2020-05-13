@@ -22,6 +22,9 @@ def group_by_sorted_features(features, n_groups):
     return groups
 
 def save_groups(groups, save_file):
+    base_path = '/'.join(path.split(save_file)[:-1])
+    if not path.exists(base_path):
+        makedirs(base_path)
     with open(save_file, 'w') as txt_file:
         for group in groups:
             txt_file.write(

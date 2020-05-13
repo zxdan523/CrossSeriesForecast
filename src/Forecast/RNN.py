@@ -63,7 +63,7 @@ class Model:
         self.training_sample_num = 1000
         self.device = '/gpu:0'
         self.graph = None
-        
+
     def set_model_params(self, params):
         if 'name' in params:
             self.name = params['name']
@@ -75,6 +75,7 @@ class Model:
             self.n_inputs = params['n_inputs']
         if 'input_features' in params:
             self.input_features = params['input_features']
+            self.n_inputs = len(self.input_features)
         if 'n_neurons' in params:
             self.n_neurons = params['n_neurons']
         if 'ckpt_path' in params:
@@ -84,7 +85,7 @@ class Model:
         if 'output_feature' in params:
             self.output_feature = params['output_feature']
         self.__build_RNN()
-    
+
     def save_model_params(self, save_path):
         model_params = {}
         model_params['name'] = self.name
@@ -101,13 +102,13 @@ class Model:
         with open(path.join(save_path, self.name + '.json'), 'w') as json_file:
             json.dump(model_params, json_file)
         print('The model is saved to ' + path.join(save_path, self.name + '.json'))
-            
+
     def load_model_params(self, save_file):
         print('Load model from file ' + save_file)
         with open(save_file) as json_file:
             model_params = json.load(json_file)
         self.set_model_params(model_params)
-        
+
     def show_model_params(self):
         print('-' * 20 + ' Model Params ' + '-' * 20)
         print('name:' + str(self.name))
@@ -119,7 +120,7 @@ class Model:
         print('n_outputs:' + str(self.n_outputs))
         print('ckpt_path:' + str(self.ckpt_path))
         print('output_feature:' + str(self.output_feature))
-        
+
     def set_training_params(self, params):
         if 'lr_decay' in params:
             self.lr_decay = params['lr_decay']
@@ -145,7 +146,7 @@ class Model:
                 + test_item\
                 for train_item, test_item\
                 in zip(train_data, test_data)
-               ]        
+               ]
     def create_set(self, datalist):
         data_mats = []
         for feature in self.input_features:
@@ -158,7 +159,7 @@ class Model:
         X = data_mat[:, :-self.n_preds,:]
         y = data_mat[:, self.n_preds:,:]
         return Dataset(X, y)
-    
+
     def train(
         self,
         train_set,
@@ -180,7 +181,7 @@ class Model:
                     sess,
                     path.join(self.ckpt_path, self.name + '.ckpt')
                 )
-            
+
             print('Training Model: ' + self.name)
             print('-' * 56)
             for epoch in range(self.n_epochs):
@@ -196,7 +197,7 @@ class Model:
                             self.lr:lr
                         }
                     )
-                
+
                 sample_num = self.training_sample_num
                 if not val_set is None:
                     sample_num = val_X.shape[0]
@@ -236,7 +237,7 @@ class Model:
             save_path = self.saver.save(sess, path.join(self.ckpt_path, self.name + '.ckpt'))
             print("Model saved in path: %s" % save_path)
             print('-' * 56)
-            
+
     def get_preds_with_horizon(self, x, horizon):
         tf.logging.set_verbosity(tf.logging.ERROR)
         results = []
@@ -259,7 +260,7 @@ class Model:
                 results.append(result[0])
         tf.logging.set_verbosity(tf.logging.DEBUG)
         return results
-    
+
     def get_preds(self, X):
         if self.graph is None:
             self.__build_RNN()
@@ -272,7 +273,7 @@ class Model:
                 }
             )
         return results
-    
+
     def get_eval(self, var, feed_dict):
         if self.graph is None:
             self.__build_RNN()
@@ -283,13 +284,13 @@ class Model:
                 feed_dict = feed_dict
             )
         return results
-        
+
     def __lr_schedule(self, lr, n_epochs, epoch):
         if epoch > 0 and epoch % (n_epochs // self.lr_decay_steps) == 0:
             lr *= self.lr_decay
             print('learning rate decrease to', lr)
         return lr
-    
+
     def __build_RNN(self):
         self.graph = tf.Graph()
         with self.graph.as_default():
@@ -304,7 +305,7 @@ class Model:
                 name = "X"
             )
             self.y = tf.placeholder(
-                tf.float32, 
+                tf.float32,
                 [None, self.n_steps, self.n_inputs],
                 name="y"
             )
@@ -335,18 +336,18 @@ class Model:
                 [-1, self.n_steps, self.n_outputs],
                 name = "outputs"
             )
-            
+
             self.predict = self.outputs[:,-1,0]
-            
+
             self.ys = self.y[:,-1,0]
-            
+
             # --------------- Training Phase ---------------
             self.lr = tf.placeholder(
                 tf.float32,
                 shape=[],
                 name="lr"
             )
-            
+
             self.loss = tf.reduce_mean(
                 tf.square(
                     self.predict - self.ys
@@ -361,7 +362,7 @@ class Model:
                 self.loss,
                 name = "training_ops"
             )
-            
+
             # --------------- Test Phase ---------------
             with tf.name_scope('eval'):
                 self.total_mse = tf.multiply(
@@ -389,7 +390,7 @@ class Model:
                     name = "Rsquare"
                 )
             self.saver = tf.train.Saver()
-    
+
 def generate_data_matrix(data, n_steps, n_preds):
     m = len(data)
     data_mat = []
@@ -400,4 +401,4 @@ def generate_data_matrix(data, n_steps, n_preds):
         for j in range(n_slides):
             mat[j, :, 0] = data[i][j:j + n_steps + n_preds]
         data_mat.append(mat)
-    return np.concatenate(data_mat, axis = 0) 
+    return np.concatenate(data_mat, axis = 0)

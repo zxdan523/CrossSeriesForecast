@@ -1,0 +1,1 @@
+{"init_model_params": {"input_features": ["sale"], "output_feature": "sale", "n_inputs": 1}, "training_params": {"skip_training": true}, "model_params_list": [["trend", ["add"]], ["seasonal", [null, "add"]], ["seasonal_period", [4, 12]], ["damped", [false, true]]]}
