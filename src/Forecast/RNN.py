@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 import random
 from os import path, makedirs
-from .Util import Dataset
+from .Util import Dataset, eva_R
 import json
 
 def show_param_list():
@@ -12,6 +12,9 @@ def show_param_list():
     print('n_steps [5]')
     print('n_preds [1]')
     print('n_neurons [100]')
+    print('cell_type [basic]')
+    print('n_layers [1]')
+    print('n_gpus [0]')
     print('n_inputs [1]')
     print('input_features [x]')
     print('n_outputs [1]')
@@ -25,8 +28,7 @@ def show_param_list():
     print('lr_decay_steps [2]')
     print('lr_schedule [learning rate schedule function]')
     print('ckpt [False]')
-    print('training_sample_num [1000]')
-    print('device [/gpu:0]')
+    print('drop_rate [1.0]')
 
 class DeviceCellWrapper(tf.contrib.rnn.RNNCell):
     def __init__(self, device, cell):
@@ -50,6 +52,9 @@ class Model:
         self.n_inputs = 1
         self.input_features = ['x']
         self.n_neurons = 100
+        self.cell_type = 'basic'
+        self.n_layers = 1
+        self.n_gpus = 0
         self.ckpt_path = '../data/RNN_ckpt'
         self.n_outputs = 1
         self.output_feature = 'x'
@@ -60,8 +65,7 @@ class Model:
         self.batch_size = 32
         self.lr_schedule = self.__lr_schedule
         self.ckpt = False
-        self.training_sample_num = 1000
-        self.device = '/gpu:0'
+        self.drop_rate = 1.0
         self.graph = None
 
     def set_model_params(self, params):
@@ -78,6 +82,12 @@ class Model:
             self.n_inputs = len(self.input_features)
         if 'n_neurons' in params:
             self.n_neurons = params['n_neurons']
+        if 'cell_type' in params:
+            self.cell_type = params['cell_type']
+        if 'n_layers' in params:
+            self.n_layers = params['n_layers']
+        if 'n_gpus' in params:
+            self.n_gpus = params['n_gpus']
         if 'ckpt_path' in params:
             self.ckpt_path = params['ckpt_path']
         if 'n_outputs' in params:
@@ -94,6 +104,9 @@ class Model:
         model_params['n_inputs'] = self.n_inputs
         model_params['input_features'] = self.input_features
         model_params['n_neurons'] = self.n_neurons
+        model_params['cell_type'] = self.cell_type
+        model_params['n_layers'] = self.n_layers
+        model_params['n_gpus'] = self.n_gpus
         model_params['ckpt_path'] = self.ckpt_path
         model_params['n_outputs'] = self.n_outputs
         model_params['output_feature'] = self.output_feature
@@ -115,6 +128,9 @@ class Model:
         print('n_steps:' + str(self.n_steps))
         print('n_preds:' + str(self.n_preds))
         print('n_neurons:' + str(self.n_neurons))
+        print('cell_type:' + str(self.cell_type))
+        print('n_gpus:' + str(self.n_gpus))
+        print('n_layers:' + str(self.n_layers))
         print('n_inputs:' + str(self.n_inputs))
         print('input_features:' + str(self.input_features))
         print('n_outputs:' + str(self.n_outputs))
@@ -136,10 +152,8 @@ class Model:
             self.lr_schedule = params['lr_schedule']
         if 'ckpt' in params:
             self.ckpt = params['ckpt']
-        if 'training_sample_num' in params:
-            self.training_sample_num = params['training_sample_num']
-        if 'device' in params:
-            self.device = params['device']
+        if 'drop_rate' in params:
+            self.drop_rate = params['drop_rate']
     def get_val_data(self, train_data, test_data):
         return [\
                 train_item[-self.n_steps:]\
@@ -194,34 +208,36 @@ class Model:
                         feed_dict = {
                             self.X:X_batch,
                             self.y:y_batch,
-                            self.lr:lr
+                            self.lr:lr,
+                            self.keep_prob:self.drop_rate,
                         }
                     )
 
-                sample_num = self.training_sample_num
-                if not val_set is None:
-                    sample_num = val_X.shape[0]
-                sampled_idx = random.sample(
-                    range(train_X.shape[0]),
-                    min(sample_num, train_X.shape[0])
-                )
-                sampled_X = train_X[sampled_idx, :, :]
-                sampled_y = train_y[sampled_idx, :, :]
-                train_R = sess.run(
-                    self.Rsquare,
-                    feed_dict = {
-                        self.X:sampled_X,
-                        self.y:sampled_y,
-                    }
-                )
-                if not val_set is None:
-                    val_R = sess.run(
-                        self.Rsquare,
+                train_preds = []
+                for i in range(0, train_X.shape[0], self.batch_size):
+                    X_batch = train_X[i:i + self.batch_size, :, :]
+                    pred = sess.run(
+                        self.predict,
                         feed_dict = {
-                            self.X:val_X,
-                            self.y:val_y,
+                            self.X:X_batch,
+                            self.keep_prob:1.0,
                         }
                     )
+                    train_preds.append(pred)
+                train_R = eva_R(np.concatenate(train_preds), train_y[:, -1, 0])
+                if not val_set is None:
+                    val_preds = []
+                    for i in range(0, val_X.shape[0], self.batch_size):
+                        X_batch = val_X[i:i + self.batch_size, :, :]
+                        pred = sess.run(
+                            self.predict,
+                            feed_dict = {
+                                self.X:X_batch,
+                                self.keep_prob:1.0,
+                            }
+                        )
+                        val_preds.append(pred)
+                    val_R = eva_R(np.concatenate(val_preds), val_y[:, -1, 0])
 
                     print(
                         '{0}\t|train R^2:{1:.5f}\t|validate R^2:{2:.5f}'.format(
@@ -266,13 +282,18 @@ class Model:
             self.__build_RNN()
         with tf.Session(graph = self.graph) as sess:
             self.saver.restore(sess, path.join(self.ckpt_path, self.name + '.ckpt'))
-            results = sess.run(
-                self.predict,
-                feed_dict = {
-                    self.X:X
-                }
-            )
-        return results
+            preds = []
+            for i in range(0, X.shape[0], self.batch_size):
+                X_batch = X[i:i + self.batch_size, :, :]
+                pred = sess.run(
+                    self.predict,
+                    feed_dict = {
+                        self.X:X_batch,
+                        self.keep_prob:1.0,
+                    }
+                )
+                preds.append(pred)
+        return np.concatenate(preds)
 
     def get_eval(self, var, feed_dict):
         if self.graph is None:
@@ -291,6 +312,55 @@ class Model:
             print('learning rate decrease to', lr)
         return lr
 
+    def __build_cells(self):
+        self.keep_prob = tf.placeholder_with_default(1.0, shape = ())
+        if self.cell_type == 'basic':
+            self.RNN_factory = tf.contrib.rnn.BasicRNNCell
+        elif self.cell_type == 'lstm':
+            self.RNN_factory = tf.contrib.rnn.LSTMCell
+        if self.n_gpus == 0:
+            cells = [
+                self.RNN_factory(
+                    num_units = self.n_neurons,
+                    activation = tf.nn.relu
+                ) for _ in range(self.n_layers)\
+            ]
+        elif self.n_gpus >= self.n_layers:
+            cells = [
+                DeviceCellWrapper(
+                    '/gpu:' + str(i),
+                    self.RNN_factory(
+                        num_units = self.n_neurons,
+                        activation = tf.nn.relu
+                    )
+                ) for i in range(self.n_layers)\
+            ]
+        else:
+            cells = []
+            gpu_no = 0
+            num_layer_per_gpu = self.n_layers // self.n_gpus
+            for layer in range(self.n_layers):
+                if (layer + 1) % num_layer_per_gpu == 0:
+                    if gpu_no < self.n_gpus - 1:
+                        gpu_no += 1
+                cells.append(
+                    DeviceCellWrapper(
+                        '/gpu:' + str(gpu_no),
+                        self.RNN_factory(
+                            num_units = self.n_neurons,
+                            activation = tf.nn.relu
+                        )
+                    )
+                )
+                
+        cell_drops = [
+            tf.contrib.rnn.DropoutWrapper(
+                cell,
+                input_keep_prob = self.keep_prob
+            ) for cell in cells\
+        ]
+        return cell_drops
+                    
     def __build_RNN(self):
         self.graph = tf.Graph()
         with self.graph.as_default():
@@ -309,20 +379,16 @@ class Model:
                 [None, self.n_steps, self.n_inputs],
                 name="y"
             )
-            self.cells = tf.contrib.rnn.BasicRNNCell(
-                num_units = self.n_neurons,
-                activation = tf.nn.relu,
-                reuse = tf.AUTO_REUSE
-            )
-            self.gpu_cells = DeviceCellWrapper(
-                self.device,
-                self.cells
-            )
+
+            self.cells = self.__build_cells()
+            self.multi_layer_cells = tf.contrib.rnn.MultiRNNCell(self.cells)
             self.rnn_outputs, self.states = tf.nn.dynamic_rnn(
-                self.gpu_cells,
+                self.multi_layer_cells,
                 self.X,
+                swap_memory = True,
                 dtype=tf.float32
             )
+           
             self.stacked_rnn_outputs = tf.reshape(
                 self.rnn_outputs,
                 [-1, self.n_neurons]
