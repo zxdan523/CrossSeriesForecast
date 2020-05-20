@@ -1,28 +1,27 @@
 from datetime import datetime
 import numpy as np
 import csv
-from os import path, makedirs, listdir
+import heapq
+from os import path, makedirs, listdir, remove
 
-class Dataset:
-    def __init__(self, X = [], y = []):
-        self.X = X
-        self.y = y
-    
-# class M5:
-#    def import_data(data_path):
+available_metrics = {
+    'R',
+    'avg_R',
+    'std_R',
+    'NMSE',
+    'avg_NMSE',
+    'std_NMSE',
+    'NMAE',
+    'avg_NMAE',
+    'std_NMAE',
+    'SMAPE',
+    'avg_SMAPE',
+    'std_SMAPE'
+}
 
-def collect_best_model_preds(
-    model,
-    groups,
-    train_datalist,
-    test_datalist,
-    model_path,
-    metric_name,
-    compare_func = lambda x,y: x > y
-):
-    perform_path = path.join(model_path, 'performance')
-    model_path = path.join(model_path, 'models')
-    n_groups = len(groups)
+larger_better_metrics = {'R', 'avg_R'}
+
+def get_compare_func(metric_name):
     if metric_name in {'R', 'avg_R'}:
         compare_func = lambda x,y: x > y
     elif metric_name in {
@@ -32,9 +31,80 @@ def collect_best_model_preds(
         'NMAE',
         'avg_NMAE',
         'std_NMAE',
-        'std_R'
+        'std_R',
+        'SMAPE',
+        'avg_SMAPE',
+        'std_SMAPE'
     }:
         compare_func = lambda x,y: x < y
+    return compare_func
+
+class Dataset:
+    def __init__(self, X = [], y = []):
+        self.X = X
+        self.y = y
+
+def clear_model_and_ckpt_files(
+    base_path,
+    groups,
+    top = 10
+):
+    perform_path = path.join(base_path, 'performance')
+    model_path = path.join(base_path, 'models')
+    ckpt_path = path.join(base_path, 'ckpts')
+    n_groups = len(groups)
+    for i in range(n_groups):
+        result_path = path.join(perform_path, 'results_' + str(i) + '.csv')
+        keep_models = set()
+        opt_metric_heaps = {metric: [] for metric in available_metrics}
+        with open(result_path) as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                model_name = row['name']
+                for metric_name in available_metrics:
+                    if metric_name not in row:
+                        continue
+                    metric = float(row[metric_name])
+                    if metric_name in larger_better_metrics:
+                        value = (metric, model_name)
+                    else:
+                        value = (-1 * metric, model_name)
+                    opt_heap = opt_metric_heaps[metric_name]
+                    if len(opt_heap) < top:
+                        heapq.heappush(opt_heap, value)
+                    else:
+                        heapq.heappushpop(opt_heap, value)
+        for metric_name in available_metrics:
+            for _, model_name in opt_metric_heaps[metric_name]:
+                keep_models.add(model_name)
+    count = 0
+    for ckpt_file in listdir(ckpt_path):
+        model_name = ckpt_file.split('.')[0]
+        if not model_name in keep_models:
+            remove(path.join(ckpt_path, ckpt_file))
+            count += 1
+    print('Delete {0} ckpt files in {1}'.format(count, ckpt_path))
+    
+    count = 0
+    for model_file in listdir(model_path):
+        model_name = model_file.split('.')[0]
+        if not model_name in keep_models:
+            remove(path.join(model_path, model_file))
+            count += 1
+    print('Delete {0} model files in {1}'.format(count, model_path))
+    
+def collect_best_model_preds(
+    model,
+    groups,
+    train_datalist,
+    test_datalist,
+    base_path,
+    metric_name
+):
+    perform_path = path.join(base_path, 'performance')
+    model_path = path.join(base_path, 'models')
+    n_groups = len(groups)
+    compare_func = get_compare_func(metric_name)
     total_num = 0
     for group in groups:
         total_num += len(group)
@@ -47,7 +117,7 @@ def collect_best_model_preds(
             reader = csv.DictReader(csv_file)
             for row in reader:
                 model_name = row['name']
-                metric = row[metric_name]
+                metric = float(row[metric_name])
                 if opt_metric is None or compare_func(
                     metric,
                     opt_metric):

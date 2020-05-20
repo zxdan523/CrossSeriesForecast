@@ -19,6 +19,7 @@ def show_param_list():
     print('input_features [x]')
     print('n_outputs [1]')
     print('output_feature [x]')
+    print('drop_rate [1.0]')
     print('ckpt_path [../data/RNN_ckpt]')
     print('-' * 20 + ' Train Params ' + '-' * 20)
     print('init_lr [1e-3]')
@@ -28,7 +29,6 @@ def show_param_list():
     print('lr_decay_steps [2]')
     print('lr_schedule [learning rate schedule function]')
     print('ckpt [False]')
-    print('drop_rate [1.0]')
 
 class DeviceCellWrapper(tf.contrib.rnn.RNNCell):
     def __init__(self, device, cell):
@@ -55,6 +55,7 @@ class Model:
         self.cell_type = 'basic'
         self.n_layers = 1
         self.n_gpus = 0
+        self.drop_rate = 1.0
         self.ckpt_path = '../data/RNN_ckpt'
         self.n_outputs = 1
         self.output_feature = 'x'
@@ -65,7 +66,6 @@ class Model:
         self.batch_size = 32
         self.lr_schedule = self.__lr_schedule
         self.ckpt = False
-        self.drop_rate = 1.0
         self.graph = None
 
     def set_model_params(self, params):
@@ -92,6 +92,8 @@ class Model:
             self.ckpt_path = params['ckpt_path']
         if 'n_outputs' in params:
             self.n_outputs = params['n_outputs']
+        if 'drop_rate' in params:
+            self.drop_rate = params['drop_rate']
         if 'output_feature' in params:
             self.output_feature = params['output_feature']
         self.__build_RNN()
@@ -109,6 +111,7 @@ class Model:
         model_params['n_gpus'] = self.n_gpus
         model_params['ckpt_path'] = self.ckpt_path
         model_params['n_outputs'] = self.n_outputs
+        model_params['drop_rate'] = self.drop_rate
         model_params['output_feature'] = self.output_feature
         if not path.exists(save_path):
             makedirs(save_path)
@@ -134,6 +137,7 @@ class Model:
         print('n_inputs:' + str(self.n_inputs))
         print('input_features:' + str(self.input_features))
         print('n_outputs:' + str(self.n_outputs))
+        print('drop_rate:' + str(self.drop_rate))
         print('ckpt_path:' + str(self.ckpt_path))
         print('output_feature:' + str(self.output_feature))
 
@@ -152,8 +156,6 @@ class Model:
             self.lr_schedule = params['lr_schedule']
         if 'ckpt' in params:
             self.ckpt = params['ckpt']
-        if 'drop_rate' in params:
-            self.drop_rate = params['drop_rate']
     def get_val_data(self, train_data, test_data):
         return [\
                 train_item[-self.n_steps:]\
