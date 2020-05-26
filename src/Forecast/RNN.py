@@ -25,6 +25,7 @@ def show_param_list():
     print('init_lr [1e-3]')
     print('n_epochs [100]')
     print('batch_size [32]')
+    print('eva_batch_size [-1]')
     print('lr_decay [0.1]')
     print('lr_decay_steps [2]')
     print('lr_schedule [learning rate schedule function]')
@@ -64,6 +65,7 @@ class Model:
         self.init_lr = 1e-3
         self.n_epochs = 100
         self.batch_size = 32
+        self.eva_batch_size = -1
         self.lr_schedule = self.__lr_schedule
         self.ckpt = False
         self.graph = None
@@ -152,6 +154,8 @@ class Model:
             self.n_epochs = params['n_epochs']
         if 'batch_size' in params:
             self.batch_size = params['batch_size']
+        if 'eva_batch_size' in params:
+            self.eva_batch_size = params['eva_batch_size']
         if 'lr_schedule' in params:
             self.lr_schedule = params['lr_schedule']
         if 'ckpt' in params:
@@ -216,8 +220,12 @@ class Model:
                     )
 
                 train_preds = []
-                for i in range(0, train_X.shape[0], self.batch_size):
-                    X_batch = train_X[i:i + self.batch_size, :, :]
+                if self.eva_batch_size == -1:
+                    eva_batch_size = train_X.shape[0]
+                else:
+                    eva_batch_size = self.eva_batch_size
+                for i in range(0, train_X.shape[0], eva_batch_size):
+                    X_batch = train_X[i:i + eva_batch_size, :, :]
                     pred = sess.run(
                         self.predict,
                         feed_dict = {
@@ -229,8 +237,12 @@ class Model:
                 train_R = eva_R(np.concatenate(train_preds), train_y[:, -1, 0])
                 if not val_set is None:
                     val_preds = []
-                    for i in range(0, val_X.shape[0], self.batch_size):
-                        X_batch = val_X[i:i + self.batch_size, :, :]
+                    if self.eva_batch_size == -1:
+                        eva_batch_size = val_X.shape[0]
+                    else:
+                        eva_batch_size = self.eva_batch_size
+                    for i in range(0, val_X.shape[0], eva_batch_size):
+                        X_batch = val_X[i:i + eva_batch_size, :, :]
                         pred = sess.run(
                             self.predict,
                             feed_dict = {
@@ -285,8 +297,12 @@ class Model:
         with tf.Session(graph = self.graph) as sess:
             self.saver.restore(sess, path.join(self.ckpt_path, self.name + '.ckpt'))
             preds = []
-            for i in range(0, X.shape[0], self.batch_size):
-                X_batch = X[i:i + self.batch_size, :, :]
+            if self.eva_batch_size == -1:
+                eva_batch_size = X.shape[0]
+            else:
+                eva_batch_size = self.eva_batch_size
+            for i in range(0, X.shape[0], eva_batch_size):
+                X_batch = X[i:i + eva_batch_size, :, :]
                 pred = sess.run(
                     self.predict,
                     feed_dict = {
@@ -418,7 +434,7 @@ class Model:
 
             self.loss = tf.reduce_mean(
                 tf.square(
-                    self.predict - self.ys
+                    self.outputs - self.y[:, :, 0:1]
                 )
             )
             self.optimizer = tf.train.AdamOptimizer(

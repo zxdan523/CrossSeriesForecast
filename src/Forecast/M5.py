@@ -1,7 +1,19 @@
 from .Util import get_data_from_csv
 import numpy as np
 from os import path
+import scipy.io
 import csv
+
+def save_to_mat(data, categories, dates, filename):
+    selected_data = select_data(data, categories, dates)
+    m, n = len(dates), 3 + len(selected_data)
+    mat = np.zeros((m, n))
+    for i in range(m):
+        year, month, day = dates[i].split('-')
+        mat[i][0], mat[i][1], mat[i][2] = int(year), int(month), int(day)
+        for j in range(3, n):
+            mat[i][j] = selected_data[j - 3][i]
+    scipy.io.savemat(filename, {'data': mat})
 
 def select_data(data, categories, dates):
     selected_data = []
