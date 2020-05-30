@@ -9,7 +9,7 @@ import json
 
 def show_param_list():
     print('-' * 20 + ' Model Params ' + '-' * 20)
-    print('name [EST]')
+    print('name [ETS]')
     print('n_inputs [1]')
     print('n_steps {x:5}')
     print('input_features [x]')
@@ -20,7 +20,7 @@ def show_param_list():
     print('damped [False]')
     print('seasonal [None]')
     print('seasonal_periods [4]')
-    print('ckpt_path: [../data/EST/ckpt]')
+    print('ckpt_path: [../data/ETS/ckpt]')
     print('-' * 20 + ' Train Params ' + '-' * 20)
     print('optimized [True]')
     print('use_brute [True]')
@@ -28,7 +28,7 @@ def show_param_list():
 
 class Model:
     def __init__(self):
-        self.name = 'EST'
+        self.name = 'ETS'
         self.n_inputs = 1
         self.n_steps = 1
         self.input_features = ['x']
@@ -39,7 +39,7 @@ class Model:
         self.seasonal = None
         self.damped = False
         self.seasonal_periods = 4
-        self.ckpt_path = '../data/EST/ckpt'
+        self.ckpt_path = '../data/ETS/ckpt'
         
         self.optimized = True
         self.use_brute = True
