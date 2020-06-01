@@ -1,6 +1,7 @@
 import numpy as np
 from os import path, makedirs
 from Forecast.Util import *
+import numpy.linalg as LA
 
 def group_by_sorted_features(features, n_groups):
     sorted_idx = np.argsort(features)
@@ -44,5 +45,33 @@ def import_groups(group_file):
             ]
             groups.append(group)
     return groups
-    
+
+
+def Euler_dist(ts1, ts2):
+    return LA.norm(np.array(ts1) - np.array(ts2)) / len(ts1)
+
+def ts_dist(ts1, ts2, dist_func = Euler_dist):
+    count = 0
+    dist = 0
+    start = 0
+    while start < len(ts1):
+        end = start
+        while end < len(ts1) and int(ts1[end]) and int(ts2[end]):
+            end += 1
+        if end > start:
+            dist += dist_func(ts1[start:end], ts2[start:end])
+            count +=1
+        start = end + 1
+    if count == 0:
+        return Euler_dist(ts1, ts2)
+    return dist / count
+
+def get_dist_mat(ts, dist_func = Euler_dist):
+    n = len(ts)
+    dist_mat = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            dist_mat[i, j] = ts_dist(ts[i], ts[j])
+    return dist_mat
+            
             

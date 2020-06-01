@@ -9,40 +9,29 @@ import json
 
 def show_param_list():
     print('-' * 20 + ' Model Params ' + '-' * 20)
-    print('name [ETS]')
+    print('name [MA]')
     print('n_inputs [1]')
     print('n_steps {x:5}')
     print('input_features [x]')
     print('n_preds [1]')
     print('n_outputs [1]')
     print('output_feature [x]')
-    print('trend [None]')
-    print('damped [False]')
-    print('seasonal [None]')
-    print('seasonal_periods [4]')
-    print('ckpt_path: [../data/ETS/ckpt]')
+    print('smoothing [2]')
+    print('ckpt_path: [../data/MA/ckpt]')
     print('-' * 20 + ' Train Params ' + '-' * 20)
-    print('optimized [True]')
-    print('use_brute [True]')
     print('skip_training [False]')
 
 class Model:
     def __init__(self):
-        self.name = 'ETS'
+        self.name = 'MA'
         self.n_inputs = 1
         self.n_steps = 1
         self.input_features = ['x']
         self.n_preds = 1
         self.n_outputs = 1
         self.output_feature = 'x'
-        self.trend = None
-        self.seasonal = None
-        self.damped = False
-        self.seasonal_periods = 4
-        self.ckpt_path = '../data/ETS/ckpt'
-        
-        self.optimized = True
-        self.use_brute = True
+        self.smoothing = 2
+        self.ckpt_path = '../data/MA/ckpt'
         self.skip_training = False
         
     def set_model_params(self, params):
@@ -60,16 +49,12 @@ class Model:
             self.n_outputs = params['n_outputs']
         if 'output_feature' in params:
             self.output_feature = params['output_feature']
-        if 'trend' in params:
-            self.trend = params['trend']
-        if 'seasonal' in params:
-            self.seasonal = params['seasonal']
-        if 'seasonal_periods' in params:
-            self.seasonal_periods = params['seasonal_periods']
-        if 'damped' in params:
-            self.damped = params['damped']
+        if 'smoothing' in params:
+            self.trend = params['smoothing']
         if 'ckpt_path' in params:
             self.ckpt_path = params['ckpt_path']
+        if 'skip_training' in params:
+            self.skip_training = params['skip_training']
     
     def save_model_params(self, save_path):
         model_params = {}
@@ -80,11 +65,9 @@ class Model:
         model_params['n_preds'] = self.n_preds
         model_params['n_outputs'] = self.n_outputs
         model_params['output_feature'] = self.output_feature
-        model_params['trend'] = self.trend
-        model_params['seasonal'] = self.seasonal
-        model_params['seasonal_periods'] = self.seasonal_periods
-        model_params['damped'] = self.damped
+        model_params['smoothing'] = self.smoothing
         model_params['ckpt_path'] = self.ckpt_path
+        model_params['skip_training'] = self.skip_training
         if not path.exists(save_path):
             makedirs(save_path)
         with open(path.join(save_path, self.name + '.json'), 'w') as json_file:
@@ -106,19 +89,13 @@ class Model:
         print('n_preds:' + str(self.n_preds))
         print('n_outputs:' + str(self.n_outputs))
         print('output_feature:' + str(self.output_feature))
-        print('trend:' + str(self.trend))
-        print('seasonal:' + str(self.seasonal))
-        print('seasonal_periods:' + str(self.seasonal_periods))
-        print('damped:' + str(self.damped))
+        print('smoothing:' + str(self.smoothing))
         print('ckpt_path:' + str(self.ckpt_path))
+        print('skip_training' + str(self.skip_training))
         
     def set_training_params(self, params):
-        if 'use_brute' in params:
-            self.use_brute = params['use_brute']
-        if 'optimized' in params:
-            self.optimized = params['optimized']
         if 'skip_training' in params:
-            self.skip_training = params['skip_training']
+            self.skip_training = params['skip_training'] 
     def get_val_data(self, train_data, test_data):
         n_steps = self.n_steps[self.output_feature]
         return [\
@@ -145,64 +122,56 @@ class Model:
             return
         train_preds = []
         for x in train_set.X:
-            self.model = ExponentialSmoothing(
-                x,
-                trend = self.trend,
-                seasonal = self.seasonal,
-                seasonal_periods = self.seasonal_periods,
-                damped = self.damped
-            ).fit(
-                optimized = self.optimized,
-                use_brute = self.use_brute
-            )
-            preds = self.model.forecast(self.n_preds)
-            train_preds.append(preds[-1])
+            ema = 0
+            for i, v in enumerate(x):
+                k = self.smoothing / (1 + i + 1)
+                ema = v * k + ema * (1 - k)
+            N = len(x)
+            for i in range(self.n_preds - 1):
+                k = self.smoothing / (1 + i + N + 1)
+                ema = ema * k + ema * (1 - k)
+            train_preds.append(ema)
         train_R = eva_R(np.array(train_preds), train_set.y)    
         if not val_set is None:
             val_X = val_set.X
             val_y = val_set.y
             val_preds = []
             for x in val_X:
-                model = ExponentialSmoothing(
-                    x,
-                    trend = self.trend,
-                    seasonal = self.seasonal,
-                    seasonal_periods = self.seasonal_periods,
-                    damped = self.damped
-                ).fit(
-                    optimized = self.optimized,
-                    use_brute = self.use_brute
-                )
-                preds = model.forecast(self.n_preds)
-                val_preds.append(preds[self.n_preds - 1])
+                ema = 0
+                for i, v in enumerate(x):
+                    k = self.smoothing / (1 + i + 1)
+                    ema = v * k + ema * (1 - k)
+                N = len(x)
+                for i in range(self.n_preds - 1):
+                    k = self.smoothing / (1 + i + N + 1)
+                    ema = ema * k + ema * (1 - k)
+                val_preds.append(ema)
             val_R = eva_R(np.array(val_preds), val_ys)
         print('Test R^2: {0}'.format(val_R))
-        
-        if not path.exists(self.ckpt_path):
-            makedirs(self.ckpt_path)
-        self.model.save(path.join(self.ckpt_path, self.name + '.pickle'))
-        print('Save Model to ' + path.join(self.ckpt_path, self.name + '.pickle'))
             
     def get_preds_with_horizon(self, x, horizon):
-        if self.model is None:
-            self.model = load_pickle(path.join(self.ckpt_path, self.name + '.pickle'))
-        return self.model.forecast(horizon)
+        ema = 0
+        for i, v in enumerate(x):
+            k = self.smoothing / (1 + i + 1)
+            ema = v * k + ema * (1 - k)
+        N = len(x)
+        for i in range(horizon - 1):
+            k = self.smoothing / (1 + i + N + 1)
+            ema = ema * k + ema * (1 - k)
+        return ema
     
     def get_preds(self, X):
         results = []
         for x in X:
-            model = ExponentialSmoothing(
-                x,
-                trend = self.trend,
-                seasonal = self.seasonal,
-                seasonal_periods = self.seasonal_periods,
-                damped = self.damped
-            ).fit(
-                optimized = self.optimized,
-                use_brute = self.use_brute
-            )
-            preds = model.forecast(self.n_preds)
-            results.append(preds[self.n_preds - 1])
+            ema = 0
+            for i, v in enumerate(x):
+                k = self.smoothing / (1 + i + 1)
+                ema = v * k + ema * (1 - k)
+            N = len(x)
+            for i in range(self.n_preds - 1):
+                k = self.smoothing / (1 + i + N + 1)
+                ema = ema * k + ema * (1 - k)
+            results.append(ema)
         return results
     
 def generate_data_matrix(data, n_steps, n_preds):

@@ -63,11 +63,11 @@ class Model:
         if 'output_feature' in params:
             self.output_feature = params['output_feature']
         if 'kernel' in params:
-            self.kernel = params['rbf']
+            self.kernel = params['kernel']
         if 'degree' in params:
             self.degree = params['degree']
         if 'gamma' in params:
-            self.gamma = params['scale']
+            self.gamma = params['gamma']
         if 'tol' in params:
             self.tol = params['tol']
         if 'C' in params:
@@ -136,7 +136,7 @@ class Model:
     def get_val_data(self, train_data, test_data):
         n_steps = max(self.n_steps.values())
         return [\
-                train_item[-n_steps:]\
+                train_item[-n_steps - self.n_preds + 1:]\
                 + test_item\
                 for train_item, test_item\
                 in zip(train_data, test_data)

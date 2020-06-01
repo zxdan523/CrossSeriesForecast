@@ -44,6 +44,38 @@ class Dataset:
         self.X = X
         self.y = y
 
+def get_best_preds(
+    model,
+    train_datalist,
+    test_datalist,
+    best_perform,
+    metric,
+    base_path
+):
+    best_model_name = best_perform[metric]['name']
+    model.load_model_params(
+        path.join(base_path,
+              best_model_name + '.json'
+             )
+    )
+    val_datalist = {}
+    for feature in train_datalist:
+        val_datalist[feature] = model.get_val_data(
+            train_datalist[feature],
+            test_datalist[feature]
+        )
+    val_set = model.create_set(val_datalist)
+    preds = model.get_preds(val_set.X)
+    
+    return formalize_prediction_as_data(preds, test_datalist[model.output_feature])
+        
+def save_json_file(
+    data,
+    file_path
+):
+    with open(file_path, 'w') as json_file:
+        json.dump(data, json_file)
+    print('File is saved to ' + file_path)
 def clear_model_and_ckpt_files(
     base_path,
     groups,
@@ -52,6 +84,8 @@ def clear_model_and_ckpt_files(
     perform_path = path.join(base_path, 'performance')
     model_path = path.join(base_path, 'models')
     ckpt_path = path.join(base_path, 'ckpts')
+    if not path.exists(ckpt_path):
+        makedirs(ckpt_path)
     n_groups = len(groups)
     for i in range(n_groups):
         result_path = path.join(perform_path, 'results_' + str(i) + '.csv')
@@ -259,14 +293,14 @@ def eva_NMSE(pred, y):
     y = np.array(y, dtype = np.float64)
     return np.mean(\
                 np.power(pred - y, 2) /\
-                   (np.mean(pred) + 1e-6) /\
-                   (np.mean(y) + 1e-6)\
+                   np.abs(np.mean(pred) + 1e-6) /\
+                   np.abs(np.mean(y) + 1e-6)\
             )
 
 def eva_NMAE(pred, y):
     pred = np.array(pred, dtype = np.float64)
     y = np.array(y, dtype = np.float64)
-    return np.mean(np.abs(pred - y)) / (np.mean(y) + 1e-6)
+    return np.mean(np.abs(pred - y)) / np.abs(np.mean(y) + 1e-6)
 
 
 def eva_R(pred, y):
@@ -282,6 +316,11 @@ def eva_SMAPE(pred, y):
                 np.abs(pred - y) /\
                    (np.abs(pred) + np.abs(y) + 1e-6) * 2\
             )
+def eva_bias(pred, y):
+    pred = np.array(pred, dtype = np.float64)
+    y = np.array(y, dtype = np.float64)
+    return np.mean(pred - y) / np.abs(np.mean(y) + 1e-6)
+
 def eva(preds, ys, metric):
     results = []
     for pred, y in zip(preds, ys):
@@ -390,4 +429,120 @@ def grid_search_model_params(
             file_path,
             model_param_path
         )
+        
+def grid_search_model_params_v2(
+    model,
+    model_name,
+    model_params,
+    model_params_list,
+    train_datalist,
+    test_datalist,
+    file_path,
+    model_param_path,
+    best_perform
+):
+    def better_than(metric, target, refer):
+        if metric in {'R', 'avg_R'}:
+            return target > refer
+        return target < refer
+    if len(model_params_list) == 0:
+        new_model_params = model_params.copy()
+        print('Tunning Parameters:')
+        for k in new_model_params:
+            print(k + ':' + str(new_model_params[k]))
+        now = datetime.now()
+        new_model_params['name'] =\
+            model_name +\
+            '_' +\
+            get_time()
+        if new_model_params['name'] != model.name.split('+')[0]:
+            new_model_params['name'] += '+0'
+        else:
+            new_model_params['name'] +=\
+                '+' + str(int(model.name.split('+')[1]) + 1)
+        model.set_model_params(new_model_params)
+        
+        train_set = model.create_set(train_datalist)
+        val_datalist = {}
+        for feature in train_datalist:
+            val_datalist[feature] = model.get_val_data(\
+                                                 train_datalist[feature],\
+                                                 test_datalist[feature]\
+                                                )
+        val_set = model.create_set(val_datalist)
+        test_data = test_datalist[model.output_feature]
+        
+        model.train(train_set, val_set)
+        
+        pred = model.get_preds(val_set.X)
+        y = np.concatenate(test_data)
+        
+        results = {k:v for k,v in new_model_params.items()}
+        results['R'] = eva_R(pred, y)
+        results['NMSE'] = eva_NMSE(pred, y)
+        results['NMAE'] = eva_NMAE(pred, y)
+        results['SMAPE'] = eva_SMAPE(pred, y)
+        
+        preds = formalize_prediction_as_data(pred, test_data)
+        Rs = eva(preds, test_data, eva_R)
+        NMSEs = eva(preds, test_data, eva_NMSE)
+        NMAEs = eva(preds, test_data, eva_NMAE)
+        SMAPEs = eva(preds, test_data, eva_SMAPE)
+        results['avg_R'] = np.mean(Rs)
+        results['std_R'] = np.std(Rs)
+        results['avg_NMSE'] = np.mean(NMSEs)
+        results['std_NMSE'] = np.std(NMSEs)
+        results['avg_NMAE'] = np.mean(NMAEs)
+        results['std_NMAE'] = np.std(NMAEs)
+        results['avg_SMAPE'] = np.mean(SMAPEs)
+        results['std_SMAPE'] = np.std(SMAPEs)
+        header = ['name']
+        for name in new_model_params:
+            if name not in header:
+                header.append(name)
+        for metric in {'R', 'NMSE', 'NMAE', 'SMAPE'}:
+            header.append(metric)
+            for stat in {'avg', 'std'}:
+                header.append(stat + '_' + metric)
+                
+        save_to_file(results, header, file_path)
+        model.save_model_params(model_param_path)
+        
+        for metric in {'R',
+                       'avg_R',
+                       'NMSE',
+                       'avg_NMSE',
+                       'NMAE',
+                       'avg_NMAE',
+                       'SMAPE',
+                       'avg_SMAPE'
+                      }:
+            if (metric in best_perform) and\
+                (not better_than(
+                    metric,
+                    results[metric],
+                    best_perform[metric]['value']
+                    )
+                ):
+                continue
+            best_perform[metric] = {}
+            best_perform[metric]['value'] = results[metric]
+            best_perform[metric]['name'] = new_model_params['name']
+
+        return
     
+    param_name, param_values = model_params_list[0]
+    for param_value in param_values:
+        new_model_params = model_params.copy()
+        new_model_params[param_name] = param_value
+        grid_search_model_params_v2(
+            model,
+            model_name,
+            new_model_params,
+            model_params_list[1:],
+            train_datalist,
+            test_datalist,
+            file_path,
+            model_param_path,
+            best_perform
+        )

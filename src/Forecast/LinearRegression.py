@@ -103,7 +103,7 @@ class Model:
     def get_val_data(self, train_data, test_data):
         n_steps = max(self.n_steps.values())
         return [\
-                train_item[-n_steps:]\
+                train_item[-n_steps - self.n_preds + 1:]\
                 + test_item\
                 for train_item, test_item\
                 in zip(train_data, test_data)
@@ -172,4 +172,4 @@ def generate_data_matrix(data, n_steps, n_preds):
             mat[j, :-1] = data[i][j:j + n_steps]
             mat[j, -1] = data[i][j + n_steps + n_preds - 1]
         data_mat.append(mat)
-    return np.concatenate(data_mat, axis = 0) 
+    return np.concatenate(data_mat, axis = 0)

@@ -162,7 +162,7 @@ class Model:
             self.ckpt = params['ckpt']
     def get_val_data(self, train_data, test_data):
         return [\
-                train_item[-self.n_steps:]\
+                train_item[-self.n_steps - self.n_preds + 1:]\
                 + test_item\
                 for train_item, test_item\
                 in zip(train_data, test_data)
